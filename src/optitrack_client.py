@@ -9,10 +9,13 @@ import time
 
 import lcm
 
+from optitrack import optitrack_data_descriptions_t
 from optitrack import optitrack_frame_t
+from optitrack import optitrack_marker_set_description_t
 from optitrack import optitrack_marker_set_t
 from optitrack import optitrack_marker_t
 from optitrack import optitrack_rigid_body_t
+from optitrack import optitrack_rigid_body_description_t
 
 def trace( *args ):
     pass
@@ -28,8 +31,9 @@ Int16Value = struct.Struct( '<h' )
 
 class NatNetClient:
     def __init__( self ):
-        # Change this value to the IP address of the NatNet server.
-        self.serverIPAddress = "169.254.201.120"
+        # Change this value to force the IP address of the NatNet
+        # server.
+        self.serverIPAddress = None
 
         # This should match the multicast address listed in Motive's streaming settings.
         self.multicastAddress = "239.255.42.99"
@@ -322,41 +326,47 @@ class NatNetClient:
     # Unpack a marker set description packet
     def __unpackMarkerSetDescription( self, data ):
         offset = 0
+        description = optitrack_marker_set_description_t()
 
         name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
         offset += len( name ) + 1
         trace( "Markerset Name:", name.decode( 'utf-8' ) )
+        description.name = name
 
         markerCount, = Int32Value.unpack(data[offset:offset + 4])
         offset += 4
+        description.num_markers = markerCount;
 
         for i in range( 0, markerCount ):
-            name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
-            offset += len( name ) + 1
-            trace( "\tMarker Name:", name.decode( 'utf-8' ) )
+            marker_name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
+            offset += len( marker_name ) + 1
+            trace( "\tMarker Name:", marker_name.decode( 'utf-8' ) )
+            description.marker_names.append(marker_name)
 
-        return offset
+        return offset, description
 
     # Unpack a rigid body description packet
     def __unpackRigidBodyDescription( self, data ):
         offset = 0
+        description = optitrack_rigid_body_description_t()
 
         # Version 2.0 or higher
         if( self.__natNetStreamVersion[0] >= 2 ):
             name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
             offset += len( name ) + 1
-            trace( "\tMarker Name:", name.decode( 'utf-8' ) )
+            trace( "\tRigid Body Name:", name.decode( 'utf-8' ) )
+            description.name = name
 
-        id, = Int32Value.unpack(data[offset:offset + 4])
+        description.id, = Int32Value.unpack(data[offset:offset + 4])
         offset += 4
 
-        parentID, = Int32Value.unpack(data[offset:offset + 4])
+        description.parent_id, = Int32Value.unpack(data[offset:offset + 4])
         offset += 4
 
-        timestamp = Vector3.unpack( data[offset:offset+12] )
+        description.offset_xyz = Vector3.unpack( data[offset:offset+12] )
         offset += 12
 
-        return offset
+        return offset, description
 
     # Unpack a skeleton description packet
     def __unpackSkeletonDescription( self, data ):
@@ -364,7 +374,7 @@ class NatNetClient:
 
         name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
         offset += len( name ) + 1
-        trace( "\tMarker Name:", name.decode( 'utf-8' ) )
+        trace( "\tSkeleton Name:", name.decode( 'utf-8' ) )
 
         id, = Int32Value.unpack(data[offset:offset + 4])
         offset += 4
@@ -382,16 +392,25 @@ class NatNetClient:
         offset = 0
         datasetCount, = Int32Value.unpack(data[offset:offset + 4])
         offset += 4
+        data_descriptions = optitrack_data_descriptions_t()
 
         for i in range( 0, datasetCount ):
             type, = Int32Value.unpack(data[offset:offset + 4])
             offset += 4
             if( type == 0 ):
-                offset += self.__unpackMarkerSetDescription( data[offset:] )
+                count, description = self.__unpackMarkerSetDescription( data[offset:] )
+                offset += count
+                data_descriptions.marker_sets.append(description)
             elif( type == 1 ):
-                offset += self.__unpackRigidBodyDescription( data[offset:] )
+                count, description = self.__unpackRigidBodyDescription( data[offset:] )
+                offset += count
+                data_descriptions.rigid_bodies.append(description)
             elif( type == 2 ):
                 offset += self.__unpackSkeletonDescription( data[offset:] )
+
+        data_descriptions.num_marker_sets = len(data_descriptions.marker_sets)
+        data_descriptions.num_rigid_bodies = len(data_descriptions.rigid_bodies)
+        self.lc.publish('OPTITRACK_DATA_DESCRIPTIONS', data_descriptions.encode())
 
     def __processMessage( self, data ):
         trace( "Begin Packet\n------------\n" )
@@ -463,13 +482,13 @@ class NatNetClient:
             print( "Could not open command channel" )
             exit
 
-        self.sendCommand( self.NAT_REQUEST_MODELDEF, "", commandSocket,
-                          (self.serverIPAddress, self.commandPort) )
-
+        server_poll_period = 1  # seconds
+        last_server_poll = 0
         while True:
             # Block for input
             rlist, _wlist, _xlist = select.select(
-                [dataSocket.fileno(), commandSocket.fileno()], [], [])
+                [dataSocket.fileno(), commandSocket.fileno()], [], [],
+                server_poll_period)
 
             if commandSocket.fileno() in rlist:
                 data, addr = commandSocket.recvfrom( 32768 ) # 32k byte buffer size
@@ -479,7 +498,17 @@ class NatNetClient:
             if dataSocket.fileno() in rlist:
                 data, addr = dataSocket.recvfrom( 32768 ) # 32k byte buffer size
                 if( len( data ) > 0 ):
+                    if self.serverIPAddress is None:
+                        self.serverIPAddress = addr[0]
                     self.__processMessage( data )
+
+            if (self.serverIPAddress is not None and
+                time.time() > last_server_poll + server_poll_period):
+                self.sendCommand( self.NAT_REQUEST_MODELDEF, "", commandSocket,
+                                  (self.serverIPAddress, self.commandPort) )
+                last_server_poll = time.time()
+
+
 
 
 if __name__ == "__main__":
