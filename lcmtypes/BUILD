@@ -3,7 +3,7 @@
 
 package(default_visibility = ["//visibility:public"])
 
-load("//tools:lcm.bzl", "lcm_cc_library", "lcm_py_library")
+load("//tools:lcm.bzl", "lcm_cc_library", "lcm_java_library", "lcm_py_library")
 
 LCM_SRCS = [
     "optitrack_data_descriptions_t.lcm",
@@ -24,6 +24,12 @@ lcm_cc_library(
 
 lcm_py_library(
     name = "py_optitrack_lcmtypes",
+    lcm_package = "optitrack",
+    lcm_srcs = LCM_SRCS,
+)
+
+lcm_java_library(
+    name = "lcmtypes_optitrack",
     lcm_package = "optitrack",
     lcm_srcs = LCM_SRCS,
 )

@@ -17,6 +17,12 @@ pkg_config_package(
     modname = "python2",
 )
 
+maven_jar(
+    name = "net_sf_jchart2d_jchart2d",
+    artifact = "net.sf.jchart2d:jchart2d:3.3.2",
+    sha1 = "4950821eefe4c204903e68b4d45a558b5ebdd6fa",
+)
+
 new_git_repository(
     name = "lcm",
     remote = "https://github.com/lcm-proj/lcm.git",
