@@ -2,6 +2,7 @@
 # provided with the NatNetSDK.  It has been converted to Python 2,
 # threading has been removed, along with various other modifications.
 
+import argparse
 import select
 import socket
 import struct
@@ -30,13 +31,11 @@ Int32Value = struct.Struct( '<i' )
 Int16Value = struct.Struct( '<h' )
 
 class NatNetClient:
-    def __init__( self ):
+    def __init__( self, options ):
+        self.options = options
         # Change this value to force the IP address of the NatNet
         # server.
         self.serverIPAddress = None
-
-        # This should match the multicast address listed in Motive's streaming settings.
-        self.multicastAddress = "239.255.42.99"
 
         # NatNet Command channel
         self.commandPort = 1510
@@ -70,8 +69,16 @@ class NatNetClient:
         result.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         result.bind( ('', port) )
 
-        mreq = struct.pack("4sl", socket.inet_aton(self.multicastAddress), socket.INADDR_ANY)
-        result.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        if self.options.local_address == '':
+            mreq = struct.pack("4sl",
+                               socket.inet_aton(self.options.multicast_address),
+                               socket.INADDR_ANY)
+            result.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        else:
+            result.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                              socket.inet_aton(self.options.multicast_address) +
+                              socket.inet_aton(self.options.local_address))
+
         return result
 
     # Create a command socket to attach to the NatNet stream
@@ -509,8 +516,18 @@ class NatNetClient:
                 last_server_poll = time.time()
 
 
+def main():
+    parser = argparse.ArgumentParser(
+        description='Translates NatNet data into LCM messages')
+    parser.add_argument('--multicast-address', default='239.255.42.99',
+                        help="The multicast address listed in Motive's " +
+                        "streaming settings.")
+    parser.add_argument('--local-address', default='',
+                        help="IP address of the local interface to listen on")
+    args = parser.parse_args()
 
+    client = NatNetClient(args)
+    client.run()
 
 if __name__ == "__main__":
-    client = NatNetClient()
-    client.run()
+    main()
