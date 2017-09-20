@@ -44,7 +44,7 @@ class NatNetClient:
         self.dataPort = 1511
 
         # NatNet stream version. This will be updated to the actual version the server is using during initialization.
-        self.__natNetStreamVersion = (3,0,0,0)
+        self.__natNetStreamVersion = None
 
         self.lc = lcm.LCM()
 
@@ -112,43 +112,48 @@ class NatNetClient:
         trace( "\tOrientation:", rot[0],",", rot[1],",", rot[2],",", rot[3] )
         msg.quat = rot
 
-        # Marker count (4 bytes)
-        markerCount, = Int32Value.unpack(data[offset:offset + 4])
-        offset += 4
-        markerCountRange = range( 0, markerCount )
-        trace( "\tMarker Count:", markerCount )
-        msg.num_markers = markerCount
 
-        # Marker positions
-        for i in markerCountRange:
-            pos = Vector3.unpack( data[offset:offset+12] )
-            offset += 12
-            trace( "\tMarker", i, ":", pos[0],",", pos[1],",", pos[2] )
-            msg.marker_xyz.append(pos)
-            # Populate marker_ids and marker_sizes in case we
-            # don't fill them later.
-
-            msg.marker_ids.append(i)
-            msg.marker_sizes.append(0.)
-
-
-        if( self.__natNetStreamVersion[0] >= 2 ):
-            # Marker ID's
-            for i in markerCountRange:
-                msg.marker_ids[i], = Int32Value.unpack(data[offset:offset + 4])
-                offset += 4
-                trace( "\tMarker ID", i, ":", msg.marker_ids[i] )
-
-            # Marker sizes
-            for i in markerCountRange:
-                msg.marker_sizes[i], = FloatValue.unpack( data[offset:offset+4] )
-                offset += 4
-                trace( "\tMarker Size", i, ":", msg.marker_sizes[i] )
-
-            markerError, = FloatValue.unpack( data[offset:offset+4] )
+        if( self.__natNetStreamVersion[0] >= 3 ) :
+            # After version 3.0 marker data moves to the description.
+            msg.num_markers = 0
+        else:
+            # Marker count (4 bytes)
+            markerCount, = Int32Value.unpack(data[offset:offset + 4])
             offset += 4
-            trace( "\tMarker Error:", markerError )
-            msg.mean_error = markerError
+            markerCountRange = range( 0, markerCount )
+            trace( "\tMarker Count:", markerCount )
+            msg.num_markers = markerCount
+
+            # Marker positions
+            for i in markerCountRange:
+                pos = Vector3.unpack( data[offset:offset+12] )
+                offset += 12
+                trace( "\tMarker", i, ":", pos[0],",", pos[1],",", pos[2] )
+                msg.marker_xyz.append(pos)
+                # Populate marker_ids and marker_sizes in case we
+                # don't fill them later.
+
+                msg.marker_ids.append(i)
+                msg.marker_sizes.append(0.)
+
+
+            if( self.__natNetStreamVersion[0] >= 2 ):
+                # Marker ID's
+                for i in markerCountRange:
+                    msg.marker_ids[i], = Int32Value.unpack(data[offset:offset + 4])
+                    offset += 4
+                    trace( "\tMarker ID", i, ":", msg.marker_ids[i] )
+
+                # Marker sizes
+                for i in markerCountRange:
+                    msg.marker_sizes[i], = FloatValue.unpack( data[offset:offset+4] )
+                    offset += 4
+                    trace( "\tMarker Size", i, ":", msg.marker_sizes[i] )
+
+        markerError, = FloatValue.unpack( data[offset:offset+4] )
+        offset += 4
+        trace( "\tMarker Error:", markerError )
+        msg.mean_error = markerError
 
         # Version 2.6 and later
         if( ( ( self.__natNetStreamVersion[0] == 2 ) and ( self.__natNetStreamVersion[1] >= 6 ) ) or self.__natNetStreamVersion[0] > 2 or self.__natNetStreamVersion[0] == 0 ):
@@ -279,6 +284,12 @@ class NatNetClient:
                     marker.params = param
                 msg.labeled_markers.append(marker)
 
+                                # Version 3.0 and later
+                if( ( self.__natNetStreamVersion[0] >= 3 ) or  major == 0 ):
+                    residual, = FloatValue.unpack( data[offset:offset+4] )
+                    offset += 4
+                    trace( "Residual:", residual )
+
         # Force Plate data (version 2.9 and later)
         if( ( self.__natNetStreamVersion[0] == 2 and self.__natNetStreamVersion[1] >= 9 ) or self.__natNetStreamVersion[0] > 2 ):
             forcePlateCount, = Int32Value.unpack(data[offset:offset + 4])
@@ -373,6 +384,20 @@ class NatNetClient:
         description.offset_xyz = Vector3.unpack( data[offset:offset+12] )
         offset += 12
 
+        if (self.__natNetStreamVersion[0] >= 3 ):
+            # Per-marker data (NatNet 3.0 and later).
+
+            # TODO (sam.creasey) use this instead of parsing and
+            # discarding it.
+            markerCount, = Int32Value.unpack(data[offset:offset + 4])
+            offset += 4
+
+            # Each position would be 3 floats.  Skip them.
+            offset += markerCount * 3 * 4;
+
+            # Each marker also has an int32 identifier.
+            offset += markerCount * 4;
+
         return offset, description
 
     # Unpack a skeleton description packet
@@ -398,12 +423,14 @@ class NatNetClient:
     def __unpackDataDescriptions( self, data ):
         offset = 0
         datasetCount, = Int32Value.unpack(data[offset:offset + 4])
+        trace( "Dataset count:", datasetCount )
         offset += 4
         data_descriptions = optitrack_data_descriptions_t()
 
         for i in range( 0, datasetCount ):
             type, = Int32Value.unpack(data[offset:offset + 4])
             offset += 4
+            trace( "Data type:", type )
             if( type == 0 ):
                 count, description = self.__unpackMarkerSetDescription( data[offset:] )
                 offset += count
@@ -429,14 +456,17 @@ class NatNetClient:
         trace( "Packet Size:", packetSize )
 
         offset = 4
-        if( messageID == self.NAT_FRAMEOFDATA ):
+        if( messageID == self.NAT_FRAMEOFDATA and
+            self.__natNetStreamVersion is not None):
             self.__unpackMocapData( data[offset:] )
-        elif( messageID == self.NAT_MODELDEF ):
+        elif( messageID == self.NAT_MODELDEF and
+              self.__natNetStreamVersion is not None):
             self.__unpackDataDescriptions( data[offset:] )
         elif( messageID == self.NAT_PINGRESPONSE ):
             offset += 256   # Skip the sending app's Name field
             offset += 4     # Skip the sending app's Version info
             self.__natNetStreamVersion = struct.unpack( 'BBBB', data[offset:offset+4] )
+            print "using NatNetStreamVersion", self.__natNetStreamVersion
             offset += 4
         elif( messageID == self.NAT_RESPONSE ):
             if( packetSize == 4 ):
@@ -512,6 +542,8 @@ class NatNetClient:
             if (self.serverIPAddress is not None and
                 time.time() > last_server_poll + server_poll_period):
                 self.sendCommand( self.NAT_REQUEST_MODELDEF, "", commandSocket,
+                                  (self.serverIPAddress, self.commandPort) )
+                self.sendCommand( self.NAT_PING, "", commandSocket,
                                   (self.serverIPAddress, self.commandPort) )
                 last_server_poll = time.time()
 
