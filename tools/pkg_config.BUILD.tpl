@@ -1,0 +1,17 @@
+# -*- python -*-
+# This file contains rules for the Bazel build system; see https://bazel.build.
+
+licenses(%{licenses})
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = %{name},
+    srcs = %{srcs},
+    hdrs = %{hdrs},
+    copts = %{copts},
+    defines = %{defines},
+    includes = %{includes},
+    linkopts = %{linkopts},
+    deps = %{deps},
+)

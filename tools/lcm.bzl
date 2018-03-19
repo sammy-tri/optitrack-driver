@@ -1,5 +1,10 @@
 # -*- python -*-
 
+# Based on commit ecd75a5ae89ee8de7e2191d95f1b922f6d1e1878 of
+# https://github.com/RobotLocomotion/drake/blob/master/tools/workspace/lcm/lcm.bzl
+
+load("//tools:pathutils.bzl", "basename", "dirname", "join_paths")
+
 def _lcm_outs(lcm_srcs, lcm_package, lcm_structs, extension):
     """Return the list of lcm-gen output filenames (derived from the lcm_srcs,
     lcm_package, and lcm_struct parameters as documented in lcm_cc_library
@@ -8,31 +13,28 @@ def _lcm_outs(lcm_srcs, lcm_package, lcm_structs, extension):
     """
     # Find and remove the dirname and extension shared by all lcm_srcs.
     # For srcs in the current directory, the dirname will be empty.
-    basename_start_index = lcm_srcs[0].rfind("/") + 1
-    dirname = lcm_srcs[0][:basename_start_index]
-    lcm_basenames = []
+    subdir = dirname(lcm_srcs[0])
+    lcm_names = []
     for item in lcm_srcs:
-        if not item[:item.rfind("/") + 1] == dirname:
-            fail(item + " doesn't share a dirname with " + lcm_srcs[0])
-        basename_with_ext = item[basename_start_index:]
-        if not basename_with_ext.endswith(".lcm"):
+        if dirname(item) != subdir:
+            fail("%s subdirectory doesn't match %s" % (item, lcm_srcs[0]))
+        if not item.endswith(".lcm"):
             fail(item + " doesn't end with .lcm")
-        basename = basename_with_ext[:-len(".lcm")]
-        lcm_basenames.append(basename)
+        itemname = basename(item)[:-len(".lcm")]
+        lcm_names.append(itemname)
 
     # Assemble the expected output paths, inferring struct names from what we
     # got in lcm_srcs, if necessary.
-    struct_outs = [
-        dirname + lcm_package + "/" + lcm_struct + extension
-        for lcm_struct in (lcm_structs or lcm_basenames)]
+    outs = [
+        join_paths(subdir, lcm_package, lcm_struct + extension)
+        for lcm_struct in (lcm_structs or lcm_names)]
 
     # Some languages have extra metadata.
-    extra_outs = []
     (extension in [".hpp", ".py", ".java"]) or fail(extension)
     if extension == ".py":
-        extra_outs.append(dirname + lcm_package + "/__init__.py")
+        outs.append(join_paths(subdir, lcm_package, "__init__.py"))
 
-    return struct_outs + extra_outs
+    return outs
 
 def _lcmgen_impl(ctx):
     """The implementation actions to invoke lcm-gen.
@@ -49,6 +51,7 @@ def _lcmgen_impl(ctx):
     # characters), including the '/' right before it (thus the "+ 1" below).
     striplen = len(ctx.attr.lcm_package) + 1
     outpath = ctx.outputs.outs[0].dirname[:-striplen]
+
     if ctx.attr.language == "cc":
         arguments = ["--cpp", "--cpp-std=c++11", "--cpp-hpath=" + outpath]
     elif ctx.attr.language == "py":
@@ -57,7 +60,7 @@ def _lcmgen_impl(ctx):
         arguments = ["--java", "--jpath=" + outpath]
     else:
         fail("Unknown language")
-    ctx.action(
+    ctx.actions.run(
         inputs = ctx.files.lcm_srcs,
         outputs = ctx.outputs.outs,
         arguments = arguments + [
@@ -86,10 +89,9 @@ _lcm_library_gen = rule(
 
 def lcm_cc_library(
         name,
-        lcm_srcs=None,
-        lcm_package=None,
-        lcm_structs=None,
-        linkstatic=1,
+        lcm_srcs = [],
+        lcm_package = None,
+        lcm_structs = [],
         **kwargs):
     """Declares a cc_library on message classes generated from `*.lcm` files.
 
@@ -104,10 +106,6 @@ def lcm_cc_library(
     lcm_srcs do not match the basenames, or if the lcm_srcs declare multiple
     structs per file, then the parameter is required and must list every
     `struct ...;` declared by lcm_srcs.
-
-    By default, we produce only static libraries, to reduce compilation time
-    on all platforms, and to avoid mysterious dyld errors on OS X. This default
-    could be revisited if binary size becomes a concern.
     """
     if not lcm_srcs:
         fail("lcm_srcs is required")
@@ -116,27 +114,38 @@ def lcm_cc_library(
 
     outs = _lcm_outs(lcm_srcs, lcm_package, lcm_structs, ".hpp")
     _lcm_library_gen(
-        name=name + "_lcm_library_gen",
-        language="cc",
-        lcm_srcs=lcm_srcs,
-        lcm_package=lcm_package,
-        outs=outs)
+        name = name + "_lcm_library_gen",
+        language = "cc",
+        lcm_srcs = lcm_srcs,
+        lcm_package = lcm_package,
+        outs = outs)
 
-    deps = depset(kwargs.pop('deps', [])) | ["@lcm//:lcm"]
-    includes = depset(kwargs.pop('includes', [])) | ["."]
+    deps = kwargs.pop("deps", [])
+    if "@lcm" not in deps:
+        deps = deps + ["@lcm"]
+
+    includes = kwargs.pop("includes", [])
+    if "." not in includes:
+        includes = includes + ["."]
+
     native.cc_library(
-        name=name,
-        hdrs=outs,
-        deps=deps,
-        includes=includes,
-        linkstatic=linkstatic,
+        name = name,
+        hdrs = outs,
+        deps = deps,
+        includes = includes,
         **kwargs)
+
+    # We report the computed output filenames for use by calling code.
+    return struct(hdrs = outs)
 
 def lcm_py_library(
         name,
-        lcm_srcs=None,
-        lcm_package=None,
-        lcm_structs=None,
+        imports = [],
+        lcm_srcs = [],
+        lcm_package = None,
+        lcm_structs = [],
+        add_current_package_to_imports = True,
+        extra_srcs = [],
         **kwargs):
     """Declares a py_library on message classes generated from `*.lcm` files.
 
@@ -146,6 +155,15 @@ def lcm_py_library(
     This library has an ${lcm_package}/__init__.py, which means that this macro
     should only be used once for a given lcm_package in a given subdirectory.
     (Bazel will fail-fast with a "duplicate file" error if this is violated.)
+
+    The add_current_package_to_imports argument controls whether or not this
+    library adds an `imports = ["."]` attribute so that `from ${lcm_package}
+    import ${lcm_src}` will work in Python code (as opposed to needing to
+    prefix import statements with the bazel package name).  It is True by
+    default, but can be set to False if a package needs its own manually-
+    written __init__.py handling, or if the current bazel package should
+    not be imported by default. Additional sources can be added via
+    `extra_srcs`.
     """
     if not lcm_srcs:
         fail("lcm_srcs is required")
@@ -154,24 +172,27 @@ def lcm_py_library(
 
     outs = _lcm_outs(lcm_srcs, lcm_package, lcm_structs, ".py")
     _lcm_library_gen(
-        name=name + "_lcm_library_gen",
-        language="py",
-        lcm_srcs=lcm_srcs,
-        lcm_package=lcm_package,
-        outs=outs)
+        name = name + "_lcm_library_gen",
+        language = "py",
+        lcm_srcs = lcm_srcs,
+        lcm_package = lcm_package,
+        outs = outs)
 
-    imports = depset(kwargs.pop('imports', [])) | ["."]
+    if add_current_package_to_imports:
+        if "." not in imports:
+            imports = imports + ["."]
+
     native.py_library(
-        name=name,
-        srcs=outs,
-        imports=imports,
+        name = name,
+        srcs = outs + extra_srcs,
+        imports = imports,
         **kwargs)
 
 def lcm_java_library(
         name,
-        lcm_srcs=None,
-        lcm_package=None,
-        lcm_structs=None,
+        lcm_srcs = [],
+        lcm_package = None,
+        lcm_structs = [],
         **kwargs):
     """Declares a java_library on message classes generated from `*.lcm` files.
 
@@ -186,15 +207,18 @@ def lcm_java_library(
 
     outs = _lcm_outs(lcm_srcs, lcm_package, lcm_structs, ".java")
     _lcm_library_gen(
-        name=name + "_lcm_library_gen",
-        language="java",
-        lcm_srcs=lcm_srcs,
-        lcm_package=lcm_package,
-        outs=outs)
+        name = name + "_lcm_library_gen",
+        language = "java",
+        lcm_srcs = lcm_srcs,
+        lcm_package = lcm_package,
+        outs = outs)
 
-    deps = depset(kwargs.pop('deps', [])) | ["@lcm//:lcm-java"]
+    deps = kwargs.pop("deps", [])
+    if "@lcm//:lcm-java" not in deps:
+        deps = deps + ["@lcm//:lcm-java"]
+
     native.java_library(
-        name=name,
-        srcs=outs,
-        deps=deps,
+        name = name,
+        srcs = outs,
+        deps = deps,
         **kwargs)
