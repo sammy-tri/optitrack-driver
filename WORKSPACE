@@ -40,9 +40,9 @@ pkg_config_repository(
 http_archive(
     name = "lcm",
     build_file = "//tools:lcm.BUILD",
-    sha256 = "8bf90431eacb982cd8a7715ec566f0d94e1dbab849d0a7af1db45b384559935d",
-    strip_prefix = "lcm-a059d86deaca39d8c355a02da01b251fb62e3b80",
-    urls = ["https://github.com/lcm-proj/lcm/archive/a059d86deaca39d8c355a02da01b251fb62e3b80.tar.gz"],
+    sha256 = "8ea0076d2f2158fc750fec697b68c6903a9d70ccbe4e3f24240415a13445381f",  # noqa
+    strip_prefix = "lcm-91ce7a2ae46ad05f8a232f5fe32a06cccbead1c2",
+    urls = ["https://github.com/lcm-proj/lcm/archive/91ce7a2ae46ad05f8a232f5fe32a06cccbead1c2.tar.gz"],
 )
 
 java_import_external(
