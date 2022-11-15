@@ -15,6 +15,9 @@ LCM_SRCS = [
     "optitrack_marker_t.lcm",
     "optitrack_rigid_body_t.lcm",
     "optitrack_rigid_body_description_t.lcm",
+    "optitrack_rigid_body_marker_description_t.lcm",
+    "optitrack_skeleton_description_t.lcm",
+    "optitrack_skeleton_t.lcm",
 ]
 
 lcm_cc_library(

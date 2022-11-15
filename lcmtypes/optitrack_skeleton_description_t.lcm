@@ -1,0 +1,8 @@
+package optitrack;
+
+struct optitrack_skeleton_description_t {
+  string name;
+  int32_t id;
+  int32_t num_rigid_bodies;
+  optitrack_rigid_body_description_t rigid_bodies[num_rigid_bodies];
+}

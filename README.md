@@ -11,10 +11,3 @@ To build:
 To run:
 
 ```bazel run //src:optitrack_client```
-
-## TODO items
-
- * Figure out how to correctly export the built LCM types
- * Parameterize the server IP address (and probably the multicast address)
- * Poll for data definitions (marker sets, rigid bodies, etc) from
-   Motive and republish.

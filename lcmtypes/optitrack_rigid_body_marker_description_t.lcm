@@ -1,0 +1,7 @@
+package optitrack;
+
+struct optitrack_rigid_body_marker_description_t {
+  string name;  // Name of marker (NatNet version >=4)
+  int32_t id;
+  float offset_xyz[3]; // offset position relative to parent body
+}

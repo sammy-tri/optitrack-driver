@@ -10,9 +10,10 @@ struct optitrack_frame_t {
   optitrack_marker_set_t marker_sets[num_marker_sets]; // MarkerSet data
   int32_t num_other_markers;                     // # of undefined markers
   float other_markers[num_other_markers][3];     // undefined marker data
-  int32_t num_rigid_bodies;                      // # of rigid bodies
+  int32_t num_rigid_bodies;
   optitrack_rigid_body_t rigid_bodies[num_rigid_bodies]; // Rigid body data
-  // Skipped skeletons.
+  int32_t num_skeletons;                         // # of skeletons
+  optitrack_skeleton_t skeletons[num_skeletons]; // Skeleton data
   int32_t num_labeled_markers;                   // # of Labeled Markers
   optitrack_marker_t labeled_markers[num_labeled_markers]; // Labeled Marker data (labeled markers not associated with a "MarkerSet")
   // Skipped force plates

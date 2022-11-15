@@ -17,6 +17,9 @@ from optitrack import optitrack_marker_set_t
 from optitrack import optitrack_marker_t
 from optitrack import optitrack_rigid_body_t
 from optitrack import optitrack_rigid_body_description_t
+from optitrack import optitrack_rigid_body_marker_description_t
+from optitrack import optitrack_skeleton_t
+from optitrack import optitrack_skeleton_description_t
 
 def trace( *args ):
     pass
@@ -171,19 +174,22 @@ class NatNetClient:
     # Unpack a skeleton object from a data packet
     def __unpackSkeleton( self, data ):
         offset = 0
+        msg = optitrack_skeleton_t()
 
-        id, = Int32Value.unpack(data[offset:offset + 4])
+        msg.id, = Int32Value.unpack(data[offset:offset + 4])
         offset += 4
         trace( "ID:", id )
 
         rigidBodyCount, = Int32Value.unpack(data[offset:offset + 4])
+        msg.num_rigid_bodies = rigidBodyCount
         offset += 4
         trace( "Rigid Body Count:", rigidBodyCount )
         for j in range( 0, rigidBodyCount ):
-            (extra_offset, _) = self.__unpackRigidBody( data[offset:] )
+            (extra_offset, rigid_body) = self.__unpackRigidBody( data[offset:] )
+            msg.rigid_bodies.append(rigid_body)
             offset += extra_offset
 
-        return offset
+        return offset, msg
 
     # Unpack data from a motion capture frame message
     def __unpackMocapData( self, data ):
@@ -255,10 +261,13 @@ class NatNetClient:
         skeletonCount = 0
         if( ( self.__natNetStreamVersion[0] == 2 and self.__natNetStreamVersion[1] > 0 ) or self.__natNetStreamVersion[0] > 2 ):
             skeletonCount, = Int32Value.unpack(data[offset:offset + 4])
+            msg.num_skeletons = skeletonCount
             offset += 4
             trace( "Skeleton Count:", skeletonCount )
             for i in range( 0, skeletonCount ):
-                offset += self.__unpackSkeleton( data[offset:] )
+                (extra_offset, skeleton_msg) = self.__unpackSkeleton( data[offset:] )
+                offset += extra_offset
+                msg.skeletons.append(skeleton_msg)
 
         # Labeled markers (Version 2.3 and later)
         labeledMarkerCount = 0
@@ -396,16 +405,22 @@ class NatNetClient:
             trace("\tMarker Count:", markerCount)
             offset += 4
 
-            # Each position would be 3 floats.  Skip them.
-            offset += markerCount * 3 * 4;
+            description.num_markers = markerCount
+            for i in range(markerCount):
+                description.markers.append(optitrack_rigid_body_marker_description_t())
+                description.markers[i].offset_xyz = Vector3.unpack( data[offset:offset+12] )
+                offset += 3 * 4
 
-            # Each marker also has an int32 identifier.
-            offset += markerCount * 4;
+
+            for i in range(markerCount):
+                # Each marker also has an int32 identifier.
+                description.markers[i].id, = Int32Value.unpack(data[offset:offset + 4])
+                offset += 4;
 
             if (self.__natNetStreamVersion[0] >= 4):
-                # Skip the names of the markers.
-                for _ in range(markerCount):
+                for i in range(markerCount):
                     name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
+                    description.markers[i].name = name.decode( 'utf-8' )
                     offset += len( name ) + 1
                     trace( "\t\tMarker Name:", name.decode( 'utf-8' ) )
 
@@ -415,22 +430,27 @@ class NatNetClient:
     # Unpack a skeleton description packet
     def __unpackSkeletonDescription( self, data ):
         offset = 0
+        description = optitrack_skeleton_description_t()
 
         name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
+        description.name = name.decode( 'utf-8' )
         offset += len( name ) + 1
         trace( "\tSkeleton Name:", name.decode( 'utf-8' ) )
 
-        id, = Int32Value.unpack(data[offset:offset + 4])
+        description.id, = Int32Value.unpack(data[offset:offset + 4])
         offset += 4
 
         rigidBodyCount, = Int32Value.unpack(data[offset:offset + 4])
+        description.num_rigid_bodies = rigidBodyCount
         offset += 4
         trace( "\tSkeleton Body Count:", rigidBodyCount, " len ", len(data))
 
         for i in range( 0, rigidBodyCount ):
-            offset += self.__unpackRigidBodyDescription( data[offset:] )[0]
+            count, rigid_body = self.__unpackRigidBodyDescription( data[offset:] )
+            offset += count
+            description.rigid_bodies.append(rigid_body)
 
-        return offset
+        return offset, description
 
     def __unpackCameraDescription(self, data):
         offset = 0
@@ -467,12 +487,15 @@ class NatNetClient:
                 offset += count
                 data_descriptions.rigid_bodies.append(description)
             elif( type == 2 ):
-                offset += self.__unpackSkeletonDescription( data[offset:] )
+                count, description = self.__unpackSkeletonDescription( data[offset:] )
+                offset += count
+                data_descriptions.skeletons.append(description)
             elif( type == 5 ):
                 offset += self.__unpackCameraDescription( data[offset:] )
 
         data_descriptions.num_marker_sets = len(data_descriptions.marker_sets)
         data_descriptions.num_rigid_bodies = len(data_descriptions.rigid_bodies)
+        data_descriptions.num_skeletons = len(data_descriptions.skeletons)
         self.lc.publish('OPTITRACK_DATA_DESCRIPTIONS', data_descriptions.encode())
 
     def __processMessage( self, data ):

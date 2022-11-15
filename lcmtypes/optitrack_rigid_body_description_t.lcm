@@ -8,4 +8,6 @@ struct optitrack_rigid_body_description_t {
   int32_t id;
   int32_t parent_id; // ID of parent Rigid Body (if hierarchy exists)
   float offset_xyz[3]; // offset position relative to parent body
+  int32_t num_markers;  // (NatNet version >= 3)
+  optitrack_rigid_body_marker_description_t markers[num_markers];
 }
