@@ -1,0 +1,7 @@
+package optitrack;
+
+struct optitrack_skeleton_t {
+  int32_t id;                       // RigidBody identifier
+  int32_t num_rigid_bodies;
+  optitrack_rigid_body_t rigid_bodies[num_rigid_bodies];
+}
