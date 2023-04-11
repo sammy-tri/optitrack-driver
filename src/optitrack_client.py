@@ -36,9 +36,7 @@ Int16Value = struct.Struct( '<h' )
 class NatNetClient:
     def __init__( self, options ):
         self.options = options
-        # Change this value to force the IP address of the NatNet
-        # server.
-        self.serverIPAddress = None
+        self.serverIPAddress = options.server
 
         # NatNet Command channel
         self.commandPort = 1510
@@ -610,6 +608,8 @@ def main():
     parser.add_argument('--unicast', action="store_true",
                         help="Listen for unicast datagrams (don't join a "
                         "multicast group")
+    parser.add_argument('--server', default=None,
+                        help="IP address of the NatNet server")
     args = parser.parse_args()
 
     client = NatNetClient(args)
