@@ -60,6 +60,7 @@ class NatNetClient:
     NAT_FRAMEOFDATA           = 7
     NAT_MESSAGESTRING         = 8
     NAT_DISCONNECT            = 9
+    NAT_KEEPALIVE             = 10
     NAT_UNRECOGNIZED_REQUEST  = 100
 
     # Create a data socket to attach to the NatNet stream
@@ -546,6 +547,9 @@ class NatNetClient:
         elif( command == self.NAT_PING ):
             commandStr = "Ping"
             packetSize = len( commandStr ) + 1
+        elif( command == self.NAT_KEEPALIVE ):
+            packetSize = 0
+            commandStr = ""
 
         data = Int16Value.pack(command)
         data += Int16Value.pack(packetSize)
@@ -594,6 +598,10 @@ class NatNetClient:
                                   (self.serverIPAddress, self.commandPort) )
                 self.sendCommand( self.NAT_PING, "", commandSocket,
                                   (self.serverIPAddress, self.commandPort) )
+                if (self.__natNetStreamVersion is not None and
+                    self.__natNetStreamVersion[0] >= 4):
+                    self.sendCommand( self.NAT_KEEPALIVE, "", commandSocket,
+                                      (self.serverIPAddress, self.commandPort) )
                 last_server_poll = time.time()
 
 
